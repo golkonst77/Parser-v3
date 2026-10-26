@@ -1,0 +1,83 @@
+# ПРЕДЛОЖЕНИЕ, не действующий .gitignore. Применять после подтверждения.
+# Нужны также allowlist и просмотр staged-содержимого.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.venv/
+venv/
+env/
+ENV/
+*.egg-info/
+build/
+dist/
+
+# Секреты, сеансы, локальные настройки
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*credentials*.json
+*secrets*.json
+*cookies*
+*storage_state*.json
+.auth/
+playwright/.auth/
+config.local.*
+*.local.json
+*.local.toml
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Базы, логи и временные файлы
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.log
+logs/
+*.tmp
+*.bak
+*.before
+
+# Фактические каталоги данных и копий
+/backups/
+/*_results/
+/real_site_check_20261023/
+/orgpage_recovery/
+/orgpage_pagination_fix/
+/local_run/
+/outputs/
+/exports/
+/artifacts/
+/downloads/
+
+# Реальные выгрузки; исключения для синтетических CSV — только точными путями
+*.csv
+*.xls
+*.xlsx
+*.parquet
+*.zip
+*.7z
+*.tar
+*.gz
+/*_WORKING_ONLY*.json
+/*_verification.json
+/*_timings.json
+/*_examples.json
+# Не игнорировать все JSON/HTML/PNG: нужны конфиг и проверенные fixtures.
+# Остальные данные исключать allowlist; lead_scoring_config.json сохранить.
+# .env.example допустим только без реальных значений.

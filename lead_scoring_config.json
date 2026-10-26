@@ -1,0 +1,15 @@
+{
+  "model_version": "commercial-v1",
+  "weights": {
+    "analytics_before_consent": 30,
+    "cookie_banner_absent": 20,
+    "policy_link_absent": 20,
+    "form_without_consent": 15,
+    "ga_measurement": 10,
+    "brand_confirmed": 5
+  },
+  "coverage": {
+    "minimum": 0.5,
+    "ready": 0.8
+  }
+}
