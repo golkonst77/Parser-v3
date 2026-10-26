@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock,patch
+from unittest.mock import Mock,patch,AsyncMock
 import db
 import engine
 from target_collection import Collection,SourceStopped,card_stream,export_results,source_config
@@ -26,6 +26,7 @@ class TargetTests(unittest.TestCase):
                 options=outer.responses.get(company['url'],{})
                 result=dict(checked_url=company['site'],final_url=options.get('final_url',company['site']),availability=options.get('availability','available'),ownership=options.get('brand','unknown'),brand_status=options.get('brand','unknown'),branch_status='unknown',checked_at=db.now(),http_status=200,error=None,duration_ms=1,evidence=[],attempt=1,
                     quick_screen=dict(status='unknown',checked_at=db.now(),duration_ms=0,features=dict.fromkeys(db.SCREEN_FEATURES,'unknown'),errors=['fixture'],details={}))
+                result['ownership_details']=options.get('ownership_details',{})
                 return result
         self.checker=Checker()
 
@@ -126,6 +127,61 @@ class TargetTests(unittest.TestCase):
         chosen=source_config(dict(name='Стоматологические клиники',source='medadvisor',search_url='https://medadvisor.ru/search'))
         self.assertEqual(chosen['source'],'orgpage');self.assertIn('orgpage.ru',chosen['search_url'])
         self.assertIn('Россия',__import__('urllib.parse',fromlist=['unquote']).unquote(chosen['search_url']))
+
+    def test_confirmed_protection_is_saved_and_exported_with_unknown_screen(self):
+        self.responses={'https://medadvisor.ru/moskva/clinic/'+str(i):dict(
+            availability=status,ownership_details={'protection_page_confirmed':True})
+            for i,status in ((1,'captcha'),(2,'blocked'))}
+        collection,stats=self.run_collection([
+            dict(site='https://captcha.test',phone='+79991234567'),
+            dict(site='https://protected.test',phone='+79991234567'),
+            dict(site='https://available.test',phone='+79991234567')],n=3)
+        self.assertEqual(stats['accepted'],3)
+        path=Path(self.temp.name)/'out.csv';export_results(collection,path)
+        with path.open(encoding='utf-8-sig',newline='') as f:
+            rows=list(csv.DictReader(f,delimiter=';'))
+        self.assertEqual(len(rows),3)
+        self.assertEqual([r['Доступность сайта'] for r in rows],['captcha','blocked','available'])
+        self.assertTrue(all(r['Статус скрининга']=='unknown' for r in rows))
+        with db.get_connection() as conn:
+            screens=conn.execute('SELECT * FROM quick_screens').fetchall()
+            self.assertTrue(all(r[field]=='unknown' for r in screens for field in db.SCREEN_FEATURES))
+
+    def test_unconfirmed_protection_and_real_failures_are_rejected(self):
+        row={'Название':'Пример','Сайт':'https://example.test','Телефон':'+79991234567',
+             'URL агрегатора':'https://medadvisor.ru/moskva/clinic/1'}
+        rules=Collection(1,1)
+        for status in ('captcha','blocked','dns_error','ssl_error','timeout','unavailable','http_error','network_error','invalid_url'):
+            with self.subTest(status=status):
+                row['Проверка сайта']=dict(availability=status,final_url=row['Сайт'])
+                self.assertIn('site_unavailable_or_unchecked',rules.rejection_reasons(row,'ok',True))
+        row['Проверка сайта']=dict(availability='blocked',final_url=row['Сайт'],ownership_details={'protection_page_confirmed':True})
+        self.assertEqual(Collection(1,1,require_site_topic=True).rejection_reasons(row,'ok',True),[])
+        row['Проверка сайта']['brand_status']='mismatch'
+        self.assertIn('site_identity_mismatch',rules.rejection_reasons(row,'ok',True))
+
+
+class ProtectionPageTests(unittest.IsolatedAsyncioTestCase):
+    async def test_protection_evidence_and_unknown_screen(self):
+        from site_checker import BrowserSiteChecker
+        from types import SimpleNamespace
+        for title,text,challenge,code,status,confirmed in [
+            ('CAPTCHA','Verify you are human',True,403,'captcha',True),
+            ('Access denied','You have been blocked',False,403,'blocked',True),
+            ('Forbidden','',False,403,'blocked',False)]:
+            with self.subTest(title=title):
+                page=AsyncMock();page.url='https://example.test/'
+                page.set_default_timeout=Mock();page.goto.return_value=SimpleNamespace(status=code)
+                page.evaluate.return_value=dict(title=title,text=text,challenge=challenge)
+                context=AsyncMock();context.new_page.return_value=page
+                browser=AsyncMock();browser.new_context.return_value=context
+                checker=BrowserSiteChecker(browser=browser,retries=0)
+                result=await checker.check(dict(name='Пример',site=page.url))
+                self.assertEqual(result['availability'],status)
+                self.assertIs(result['ownership_details']['protection_page_confirmed'],confirmed)
+                self.assertEqual(result['quick_screen']['status'],'unknown')
+                self.assertTrue(all(v=='unknown' for v in result['quick_screen']['features'].values()))
+                page.evaluate.assert_awaited_once()
 
 
 class CursorTests(unittest.TestCase):

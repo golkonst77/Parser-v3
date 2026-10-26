@@ -70,13 +70,15 @@ class Collection:
     def rejection_reasons(self,row,fetch_status,geography_ok):
         reasons=self.precheck(row,fetch_status,geography_ok)
         check=row.get('Проверка сайта') or {}
+        protected = (check.get('availability') in ('captcha','blocked') and
+                     (check.get('ownership_details') or {}).get('protection_page_confirmed') is True)
         aliases={d for d in (site_domain(row.get('Сайт')),site_domain(check.get('final_url'))) if d}
         if not reasons:
-            if check.get('availability')!='available':reasons.append('site_unavailable_or_unchecked')
+            if check.get('availability')!='available' and not protected:reasons.append('site_unavailable_or_unchecked')
             elif (check.get('brand_status') or check.get('ownership'))=='mismatch':reasons.append('site_identity_mismatch')
             elif self.require_same_site_domain and site_domain(check.get('final_url'))!=site_domain(row.get('Сайт')):
                 reasons.append('site_redirected_to_other_domain')
-            elif self.require_site_topic and not (check.get('ownership_details') or {}).get('industry_check',{}).get('matched'):
+            elif self.require_site_topic and not protected and not (check.get('ownership_details') or {}).get('industry_check',{}).get('matched'):
                 reasons.append('industry_not_confirmed_on_site')
             elif aliases & self.domains:reasons.append('duplicate_organization')
         return reasons

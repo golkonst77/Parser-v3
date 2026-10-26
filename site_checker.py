@@ -94,10 +94,12 @@ class BrowserSiteChecker:
         content = await page.evaluate(SNAPSHOT)
         text = (content['title'] + ' ' + content['text']).casefold()
         challenge_title = bool(re.search(r'\bcaptcha\b|проверка (?:браузера|безопасности)', content['title'], re.I))
-        if challenge_title or (content.get('challenge') and len(content['text']) < 1500) or any(s in text for s in ('verify you are human','подтвердите, что вы человек','я не робот','captcha challenge')):
+        protection_page = challenge_title or (content.get('challenge') and len(content['text']) < 1500) or any(s in text for s in ('verify you are human','подтвердите, что вы человек','я не робот','captcha challenge'))
+        access_page = any(s in text for s in ('access denied','доступ запрещен','доступ ограничен','you have been blocked'))
+        if protection_page:
             result['availability'] = 'captcha'
             result['error'] = 'Human verification required; availability inconclusive'
-        elif result['http_status'] in (401,403,429) or any(s in text for s in ('access denied','доступ запрещен','доступ ограничен','you have been blocked')):
+        elif result['http_status'] in (401,403,429) or access_page:
             result['availability'] = 'blocked'
             result['error'] = 'Access restricted; no bypass attempted'
         elif response is None:
@@ -114,6 +116,8 @@ class BrowserSiteChecker:
             identity=assess_identity(company,page.url,content)
             result.update(ownership=identity['brand_status'],brand_status=identity['brand_status'],branch_status=identity['branch_status'],ownership_details=identity,
                 evidence=[e['kind'] for e in identity['evidence']])
+        if result['availability'] in ('captcha','blocked'):
+            result.setdefault('ownership_details',{})['protection_page_confirmed'] = bool(response is not None and (protection_page or access_page))
         if result['availability']=='available' and company.get('site_topic_terms'):
             # Industry selection uses this already loaded snapshot, without extra navigation.
             pattern=r'\b(?:'+'|'.join(re.escape(term) for term in company['site_topic_terms'])+r')\w*'
