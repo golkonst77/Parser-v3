@@ -69,8 +69,8 @@ def urls(browser,config,collection):
                     url=db.canonical_url(row['url'])
                     collection.catalog_metadata[url]=dict(name=row['name'],city=row['city'],catalog_page=number,catalog_url=page.url)
                     if url not in seen:seen.add(url);candidates.append(url)
-            signature=tuple(r['url'] for r in snapshot['cards'])
-            if signature in signatures:
+            signature=frozenset(db.canonical_url(r['url']) for r in snapshot['cards'])
+            if signature in signatures or not candidates:
                 _save_proof(config,collection,proof);raise SourceStopped('pagination_stalled')
             signatures.add(signature)
             next_link=next((a for a in snapshot['pagination'] if a['text']=='Далее' or a.get('rel')=='next'),None)

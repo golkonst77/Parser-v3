@@ -47,9 +47,10 @@ class Collection:
 
     def begin(self,stats,run_id):
         self.stats,self.run_id=stats,run_id
-        stats.update(target=self.target,initial_buffer=2*self.target,max_cards=self.max_cards,
+        stats.update(target=self.target,initial_buffer=min(200,2*self.target,self.max_cards),max_cards=self.max_cards,
                      cards_reviewed=0,accepted=0,rejected=0,rejected_by_reason={},all_rejection_reasons={},
                      source_batches=0,source_links_buffered=0,source_pages=0,target_achieved=False,stop_reason=None)
+        stats.update(getattr(self,'resume_stats',{}))
         with db.get_connection() as c:
             c.execute('''CREATE TABLE IF NOT EXISTS collection_decisions (
                 id INTEGER PRIMARY KEY, run_id INTEGER NOT NULL REFERENCES runs(id),
@@ -166,8 +167,12 @@ def _orgpage_urls(browser,config,collection,source_context=None):
                 candidates=[db.canonical_url(u) for u in links if site_domain(u)=='orgpage.ru' and is_company_link(u,config['link_re'])]
                 diagnostic['cards_found']=len(candidates)
                 print('Orgpage catalog: '+json.dumps(diagnostic,ensure_ascii=False),flush=True)
-                signature=tuple(candidates)
-                if signature in signatures:raise SourceStopped('pagination_stalled')
+                if not candidates:
+                    next_element=next((element for selector in NEXT_SELECTORS+[f'a:text-is("{page_number+1}")'] if (element:=page.query_selector(selector)) is not None and element.is_visible()),None)
+                    if next_element is not None:raise SourceStopped('pagination_stalled','Пустая страница с переходом далее')
+                    break
+                signature=frozenset(candidates)
+                if signature in signatures or all(url in seen for url in candidates):raise SourceStopped('pagination_stalled')
                 signatures.add(signature)
                 for url in candidates:
                     if url not in seen:
@@ -278,12 +283,16 @@ def card_stream(config,target,browser,collection,source_context=None):
         iterator=_medadvisor_urls(config) if config['source']=='medadvisor' else (_orgpage_queries(browser,config,collection,source_context) if config.get('search_queries') else _orgpage_urls(browser,config,collection,source_context))
         collection.stats['source_scope']='input_csv' if config['source']=='medadvisor' else 'catalog_search_pages'
         if config['source']=='medadvisor':collection.stats['source_input']=str(config.get('input_csv',db.ROOT/'medadvisor.csv'))
-    size=min(2*target,collection.max_cards)
+    size=min(200,2*target,collection.max_cards)
+    reviewed=config.get('_reviewed_urls',set())
     try:
         while True:
             buffer=[];stopped=None
             for _ in range(size):
-                try:buffer.append(next(iterator))
+                try:
+                    url=next(iterator)
+                    while db.canonical_url(url) in reviewed:url=next(iterator)
+                    buffer.append(url)
                 except StopIteration:stopped=SourceStopped('source_exhausted');break
                 except SourceStopped as exc:stopped=exc;break
                 except Exception as exc:stopped=SourceStopped('source_error',str(exc));break
@@ -415,10 +424,58 @@ def export_results(collection,filename):
     return str(filename)
 
 
+def resume_state(config):
+    """Read an isolated industry's durable decisions; never recheck saved cards."""
+    import sqlite3
+    from contextlib import closing
+    if config.get('geography') or config.get('search_queries'):
+        raise ValueError('Resume поддерживает отдельный общероссийский каталог одной отрасли')
+    with closing(sqlite3.connect(Path(db.DB_FILE).resolve().as_uri()+'?mode=ro',uri=True)) as conn:
+        industries={row[0] for row in conn.execute('SELECT DISTINCT industry FROM companies')}
+        if industries!={config['name']}:
+            raise ValueError('Resume требует БД только выбранной отрасли; смешивать отрасли нельзя')
+        reviewed={db.canonical_url(row[0]) for row in conn.execute('SELECT company_url FROM collection_decisions')}
+        histories=[json.loads(row[0]) for row in conn.execute('SELECT stats_json FROM runs WHERE stats_json IS NOT NULL ORDER BY id')]
+    rules=Collection(1,1,require_same_site_domain=config.get('require_same_site_domain',False),require_site_topic=bool(config.get('site_topic_terms')))
+    rules.industry=config['name']
+    initial=len(accumulated_records(rules))
+    start=None
+    if config['source']=='medadvisor':
+        proofs={proof['requested_page']:proof for history in histories for proof in history.get('catalog_pages',[]) if proof.get('verified')}
+        if not proofs:raise ValueError('Нет проверенного курсора MedAdvisor для безопасного resume')
+        start=min(proofs)
+        while start in proofs:
+            proof=proofs[start]
+            # Buffered pages may never have reached process_cards: replay the first incomplete page.
+            if any(db.canonical_url(url) not in reviewed for url in proof['cards']) or not proof.get('next_url'):break
+            start+=1
+    return dict(initial=initial,reviewed=reviewed,start_page=start)
+
+
 def run_target(config,target):
     import engine
     config=source_config(config)
-    collection=Collection(target,config.get('max_cards',max(200,10*target)),require_same_site_domain=config.get('require_same_site_domain',False),require_site_topic=bool(config.get('site_topic_terms')))
+    config.setdefault('max_pages',200)
+    if type(config['max_pages']) is not int or not 1<=config['max_pages']<=1000:
+        raise ValueError('max_pages должен быть от 1 до 1000')
+    resume=resume_state(config) if config.get('resume') else None
+    goal=target
+    if resume:
+        target=max(0,goal-resume['initial'])
+        config['_reviewed_urls']=resume['reviewed']
+        if resume['start_page'] is not None:config['start_page']=resume['start_page']
+        print(f"Resume: сохранено пригодных {resume['initial']}; итоговая цель {goal}; добрать {target}; ранее просмотрено {len(resume['reviewed'])}")
+        if resume['start_page'] is not None:print('Продолжение MedAdvisor со страницы:',resume['start_page'])
+    collection=Collection(max(1,target),config.get('max_cards',max(200,10*target)),require_same_site_domain=config.get('require_same_site_domain',False),require_site_topic=bool(config.get('site_topic_terms')))
+    if resume:
+        collection.resume_stats=dict(goal_total=goal,resume_initial=resume['initial'],resume_reviewed=len(resume['reviewed']))
+        if target==0:
+            collection.industry=config['name']
+            collection.stats=dict(collection.resume_stats,target=0,accepted=0,cards_reviewed=0,rejected=0,
+                                  rejected_by_reason={},target_achieved=True,stop_reason='target_already_reached')
+            export_results(collection,config['output'])
+            print('Итоговая цель уже достигнута; сетевые запросы не выполнялись. CSV:',config['output'])
+            return [],collection.stats
     db.init_db(refresh_existing=False)
     try:
         engine.enrich_and_check(None,config,target_count=target,collection=collection)

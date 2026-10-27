@@ -276,6 +276,7 @@ def process_cards(urls, config, fetch, site_checker=None, *, target_count=None, 
         candidates=urls if collection else dict.fromkeys(db.canonical_url(u) for u in urls)
         for url in candidates:
             url=db.canonical_url(url)
+            if url in config.get('_reviewed_urls',set()):continue
             viewed+=1
             if collection and stats['cards_reviewed']>=collection.max_cards:
                 stats['stop_reason']='safety_card_limit'
@@ -477,6 +478,6 @@ def run_parser(config, target_count):
     from target_collection import run_target,source_config
     chosen=source_config(config)
     print(f"{chosen.get('emoji','')} {chosen['name']} | источник: {chosen['source']}")
-    print(f"Цель: {target_count} новых пригодных уникальных сайтов")
+    print(f"Цель: {target_count} {'всего' if chosen.get('resume') else 'новых'} пригодных уникальных сайтов")
     print('География:',chosen.get('geography') or 'вся Россия')
     return run_target(chosen,target_count)
