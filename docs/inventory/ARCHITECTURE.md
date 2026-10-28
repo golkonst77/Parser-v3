@@ -1,24 +1,49 @@
-# Архитектура
+# Модули и поток данных
 
-Ограничения доказательств: [STATUS.md](STATUS.md). Историческая миграция: [STAGE1_REPORT.md](../../STAGE1_REPORT.md); накопление: [UNIQUE_URL_ACCUMULATION_REPORT.md](../../UNIQUE_URL_ACCUMULATION_REPORT.md).
+Актуально 28.10.2026, код 5e8782b. Это инвентаризация публикуемого репозитория,
+а не повторная инвентаризация всех локальных данных.
 
-## Текущий поток
+| Модуль/файл | Назначение |
+|---|---|
+| parser_run.py | CLI, диалог, отдельные пути, лимиты, resume, защита от БД другой отрасли |
+| main.py | Старое меню, общая БД, дополнительные экспорты и рейтинговые операции |
+| industries.py | Восемь отраслей, источники, реальные URL, заголовки рубрик и правила строительства |
+| target_collection.py | Маршрутизация, поток ссылок, пригодность, resume, накопительный CSV |
+| engine.py | Карточки, контакты, проверка источника, сохранение решений и координация |
+| medadvisor_catalog.py | Проверяемые номера страниц MedAdvisor и следующий переход |
+| db.py | SQLite, миграции, канонизация, транзакционное сохранение и прежние экспорты |
+| geography.py | Россия по умолчанию и явные фильтры |
+| site_checker.py | Ограниченные браузерные проверки сайтов, доступность и защита |
+| organization_identity.py | Доказательства бренда/филиала |
+| quick_screen.py | Краткое наблюдение DOM/сети, yes/no/unknown |
+| console_progress.py | Прогресс по решениям текущего run_id |
+| lead_scoring.py / lead_cli.py | Сохранённые баллы, очереди и прежние операции; не порог приёма |
+| lead_scoring_config.json | Веса и coverage без изменения в этой ревизии |
+| requirements.txt | Единственная прямая зависимость: playwright==1.63.0 |
 
-`main.py / parser_run.py → industries → engine.run_parser → source_config → run_target → db.init_db(refresh_existing=False) → enrich_and_check → card_stream → process_cards → Collection → save_new_usable_company → export_results`.
+Всего 14 runtime-модулей и 7 test_*.py в Git. Отдельных .ps1/.bat-скриптов
+запуска в публикуемом наборе нет: проверяемые команды находятся в RUNBOOK.
+Внешние Python-зависимости Playwright ставятся pip; Chromium — отдельный ресурс.
 
-1. industries.py задаёт отрасли, URL/regex, output, ready/soon и правила строительства. CLI проверяет N/start_page/max_cards. geography.py обрабатывает явные фильтры; None означает отсутствие географического ограничения.
-2. source_config переопределяет источник по точному имени отрасли. MedAdvisor с start_page использует medadvisor_catalog.urls, без него — локальный CSV. Orgpage использует _orgpage_urls, строительство — _orgpage_queries с общим контекстом и исключением повторных ссылок.
-3. card_stream сохраняет курсор и порции до 2N ссылок. max_cards по умолчанию max(200,10N), MAX_PAGES=15. Источник останавливается при ограничении доступа. Это пределы поиска, не обещание достижения N.
-4. engine получает текст карточки, метаданные, контакты/географию. Известные карточки и домены общей БД пропускаются в целевом режиме. Отказы не занимают домен новой companies, но журналируются как решения/ошибки.
-5. site_checker открывает главную страницу Chromium, определяет availability и identity через organization_identity, запускает QuickScreen. Контексты изолированы, время и повторы ограничены. Бренд и филиал оцениваются независимо.
-6. Collection принимает запись без порога рейтинга; строительство добавляет доменный и тематический фильтры. save_new_usable_company повторно проверяет уникальность и транзакционно сохраняет организацию, проверку, скрининг и рейтинг. Старый add_or_update_company остаётся доступен другим сценариям и способен обновлять данные.
-7. console_progress читает решения текущего run_id. Завершение фиксирует статистику в runs. Прогресс по SQL не означает восстановления курсора между запусками.
-8. export_results формирует CSV из всех пригодных сохранённых записей отрасли и сохранённых баллов, без сетевой перепроверки и пересчёта старых рейтингов. Временный CSV заменяет output, summary.json сохраняется рядом. MedAdvisor CLI может писать catalog_pages.json. Отдельной блокировки нескольких процессов, пишущих общий output/.tmp, нет.
+Поток: CLI/меню → engine.run_parser → source_config → run_target →
+resume_state (при продолжении) → db.init_db(refresh_existing=False) →
+enrich_and_check → card_stream → process_cards → Collection →
+save_new_usable_company → export_results.
 
-## Хранение и побочные действия
+source_config назначает MedAdvisor только имени «Медицинские клиники»; каталог
+по умолчанию живой, с первой страницы. Остальные семь маршрутов — Orgpage.
+Низкоуровневое чтение явного медицинского CSV сохранено для старых вызовов.
+Orgpage проверяет заголовок рубрики и останавливает неверную маршрутизацию.
+Подтверждённая защита каталога не обходится.
 
-Основная БД — db.ROOT/parser_v2.db, SQLite WAL. По коду схемы: companies/card_keys/migration_originals; runs/errors/collection_decisions; site_checks/site_check_state; quick_screens/quick_screen_features; lead_scores/lead_processing. Это анализ схемообразующего кода, не новая проверка содержимого основной базы.
+SQLite WAL: companies/card_keys/migration_originals; runs/errors/collection_decisions;
+site_checks/site_check_state; quick_screens/quick_screen_features;
+lead_scores/lead_processing. Отказы журналируются; только пригодные новые записи
+попадают в companies целевого потока. Рейтинг сохраняется, но не ограничивает N.
+Экспорт повторно применяет правила пригодности к сохранённым проверкам отрасли,
+исключает доменные дубли и атомарно заменяет output.
 
-Наличие WAL/SHM важно для будущего backup: перенос одного живого .db не подтверждён как согласованная копия. Инициализация БД и меню способны мигрировать данные; в ходе инвентаризации не вызывались.
-
-lead_scoring_config.json задаёт веса и coverage для коммерческих очередей. lead_cli предоставляет просмотр/экспорт, изменение статуса и пересчёт. Подсистема рейтинга остаётся, хотя не ограничивает N. QuickScreen наблюдает баннеры, формы, документы и аналитику в ограниченном окне; no и unknown имеют разный смысл. Полного аудита сайта и юридических выводов этот поток не обеспечивает.
+Ограничения resume и экспортов — [RUNBOOK](RUNBOOK.md), доказательства и проблемы —
+[STATUS](STATUS.md) и [AUDIT_REPORT](AUDIT_REPORT.md). Исторические FILE_MANIFEST,
+GITHUB_PLAN и GITIGNORE_PROPOSAL описывают исходную инвентаризацию 26.10.2026;
+они не являются текущими инструкциями публикации/запуска.

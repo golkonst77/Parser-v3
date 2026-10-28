@@ -1,56 +1,132 @@
 # Запуск и эксплуатация
 
-Команды запуска ниже — справка для будущего использования. Парсер при инвентаризации не запускался. Проверки: [STATUS.md](STATUS.md).
+Актуально для кода 5e8782b, 28.10.2026. Предпочтительный вход — parser_run.py.
+Команды ниже рассчитаны на локальную Windows-папку D:\DATA\Parser V2_0;
+облачная среда не получает этот путь автоматически. Относительные пути считаются
+от текущей папки. Не запускайте одновременно процессы с одной БД или CSV.
 
-## Предпосылки
+## Подготовка и малый тест
 
-Локально найдены Python 3.14.2 и импортируемый Playwright. Версия зависимости и наличие работоспособного Chromium не проверены; requirements/lock отсутствуют. parser_run.dependencies ищет пользовательские site-packages и `%LOCALAPPDATA%/ms-playwright`, при наличии задаёт PLAYWRIGHT_BROWSERS_PATH. Ничего не устанавливалось.
-
-## CLI
+Проверено: Python 3.14.2, Playwright 1.63.0, установленный Chromium. Единственная
+прямая внешняя зависимость — Playwright, закреплена в requirements.txt.
+Новая среда: `python -m pip install -r requirements.txt`, затем
+`python -m playwright install chromium`. В готовой среде повторять не требуется.
 
 ```powershell
 Set-Location -LiteralPath 'D:\DATA\Parser V2_0'
-python -B .\parser_run.py
+python -B -u .\parser_run.py --industry 3 --target 1 --max-cards 4 --max-pages 1 --database .\local_run\construction_smoke_new\data.db --output .\local_run\construction_smoke_new\sample.csv
 ```
 
-Интерактивно: доступная отрасль → N → начальная страница MedAdvisor (Enter=1). Доступны 1 медицина, 2 красота, 3 строительство; 4–8 имеют soon.
+При повторном самостоятельном smoke-test выбирайте новый суффикс папки.
+[Номера отраслей](INDUSTRIES.md). `main.py` — старое меню с общей БД и другими
+экспортами/рейтингами. При старте db.init_db() может мигрировать старые строки,
+используя необязательный существующий medadvisor.csv. Целевой CLI использует
+refresh_existing=False, медицинский CSV для схемы или живого каталога не нужен.
 
-Малый будущий сбор в отдельные файлы (создаёт данные и обращается к сети):
+## Строительство: 1000 и продолжение
+
+Новый отдельный путь:
 
 ```powershell
-python -B .\parser_run.py --industry 1 --target 2 --start-page 1 --max-cards 12 --database .\local_run\sample.db --output .\local_run\sample.csv
+Set-Location -LiteralPath 'D:\DATA\Parser V2_0'
+$run = '.\local_run\construction_1000_20261028'
+New-Item -ItemType Directory -Path $run -Force | Out-Null
+python -B -u .\parser_run.py --industry 3 --target 1000 --max-cards 10000 --max-pages 200 --database "$run\data.db" --output "$run\sample.csv" 2>&1 | Tee-Object -FilePath "$run\run.log"
 ```
 
-Для Orgpage выбрать --industry 2/3 и убрать --start-page. Необязательные --city и --region можно повторять. Без них — Россия как область поиска. N/max-cards >0; start-page >=1, только MedAdvisor.
-
-`python -B .\main.py` открывает старое меню и вызывает db.init_db() до выбора, поэтому способен мигрировать/обновлять БД. Медицинские ссылки в этом пути берутся из medadvisor.csv. Пункты 92/93 экспортируют обычные строки БД, 95–98 работают с рейтинговыми очередями/пересчётом; это другие выборки, чем target-CSV.
-
-## Настройки и ожидаемый результат
-
-industries.py содержит output, search_url, search_queries/query_batch_size, require_same_site_domain/site_topic_terms, ready/soon. Общие константы MAX_PAGES=15, MAX_RETRIES=2, SAVE_EVERY=10, REQUEST_DELAY=0.8; не все исторические константы управляют новым конвейером. max_cards по умолчанию max(200,10N). Проверяющий сайтов вызывается с concurrency=1; его defaults: timeout=20, navigation_timeout=8, retries=1; скрининг budget=3/observation=2 секунды. lead_scoring_config.json задаёт веса, не порог пригодности.
-
-Все отрасли по умолчанию пишут в parser_v2.db; --database меняет путь, --output — CSV. Инициализация новой БД без явного seed также читает существующий medadvisor.csv: отдельная БД не обязательно пустая. Существующие изолированные тесты передают собственный seed.
-
-N — новые пригодные сайты текущего запуска; известные домены всей БД не считаются повторно. Прогресс: `[просмотрено] [Готово: принято/N]`. CSV накопительный по отрасли, может превышать N и включать прежние строки вне геофильтра запуска.
-
-CSV: 24 колонки, UTF-8 BOM, `;`, контакты/география/доступность/скрининг/сохранённый рейтинг/неопределённость. summary.json относится к текущему запуску, а не ко всем строкам CSV; catalog_pages.json содержит доказательства пагинации MedAdvisor. Эти файлы и БД хранят реальные данные, их нужно исключать из Git.
-
-Проверять target_achieved и stop_reason: source_exhausted, safety_card_limit, safety_page_limit, access_restricted, source_error, pagination_stalled и прочие причины допускают недобор. При CAPTCHA/блокировке источник останавливается без обхода. finally может сохранить фактическую часть при прерывании. Следующий запуск получает новый run_id, полноценного CLI-resume нет.
-
-## Проверки без записи данных
-
-Синтаксис без .pyc:
+После остановки, те же пути:
 
 ```powershell
-python -B -c "import ast,pathlib; p=list(pathlib.Path('.').glob('*.py')); [ast.parse(f.read_bytes(),filename=str(f)) for f in p]; print(len(p))"
+Set-Location -LiteralPath 'D:\DATA\Parser V2_0'
+$run = '.\local_run\construction_1000_20261028'
+python -B -u .\parser_run.py --industry 3 --target 1000 --resume --max-cards 10000 --max-pages 200 --database "$run\data.db" --output "$run\sample.csv" 2>&1 | Tee-Object -FilePath "$run\resume.log" -Append
 ```
 
-Чистые mock-тесты:
+Аргументы проверены; сбор 1000 в этой ревизии не запускался.
 
-```powershell
-python -B -m unittest test_orgpage_recovery test_target_count.CursorTests test_start_page.InteractivePageTests test_start_page.CatalogPageTests test_stage3_1.IdentityTests test_stage3_1.EvidenceTests test_stage5.GeographyTests test_csv_rating_export.SavedCsvTests.test_saved_points_and_unknown_are_not_recalculated
-```
+## Параметры и возобновление
 
-Итоговые 52 теста включали также ConstructionTests, загруженный через unittest.TestLoader с исключением метода test_target_and_query_attribution_are_global. В текущем прогоне дополнительно действовал Python audit hook с запретом файловых мутаций, subprocess и socket-событий. Полный test_construction не является чистым: исключённый метод создаёт БД/файлы.
+| Параметр | Фактическое поведение |
+|---|---|
+| --target N | Положительное число новых пригодных организаций; с --resume — накопленный итог отрасли |
+| --database | Отдельная SQLite. Явная существующая БД другой отрасли отклоняется. Без параметра используется общая parser_v2.db |
+| --output | CSV выбранной отрасли этой БД, а не только текущие N. Существующий файл заменяется; принадлежность пути другой БД не проверяется |
+| --resume | Требует существующую явную БД, явный output, ровно выбранную отрасль в companies и журнал решений |
+| --max-cards | Лимит новых рассматриваемых карточек за запуск; по умолчанию max(200, 10 × оставшийся target) |
+| --max-pages | Общий предел страниц за запуск: 200 по умолчанию, допустимо 1–1000 |
+| --start-page | Только MedAdvisor, >=1, по умолчанию 1; с resume запрещён |
+| --city / --region | Повторяемые фильтры; по умолчанию Россия; с resume запрещены |
 
-Не использовать полный discovery/stage*_run_tests.py как read-only проверку: есть временные БД, Chromium, localhost-серверы и перезапись timing/example-файлов. Полные проверки требуют отдельного разрешённого изолированного окружения.
+MAX_PAGES=15 в industries.py — исторический fallback низкого уровня. Целевой
+поток задаёт 200 или значение CLI. Буфер ограничен min(200, 2N, max-cards).
+Общего таймаута на весь запуск CLI нет; навигации и проверки имеют таймауты.
+
+Resume читает принятые и отклонённые URL из collection_decisions, пропускает их
+до загрузки карточки. MedAdvisor восстанавливает первую неполную подтверждённую
+страницу либо следующую после полностью обработанной. Orgpage заново обходит
+каталог с первой страницы, без повторного открытия известных карточек. Страницы
+такого обхода тоже расходуют max-pages. Если прежний предел снова достигнут до
+новых ссылок, его нужно явно увеличить в пределах 1000.
+
+Ранее сохранённые проверки не повторяются. Порядок карточек источник может
+изменить; полнота покрытия не гарантирована. У старой БД без журнала решений,
+пустой companies, географического или многоquery-обхода нет гарантии безопасного
+возобновления. Текущая config с geography/search_queries отклоняется. При этом
+сравнения старой рубрики/конфигурации с историей нет: после изменения области
+обхода сохраните прежнюю БД отдельно и используйте новую.
+
+CSV перестраивается из накопленных пригодных строк отрасли без сетевой
+перепроверки. Возможны прежние строки вне нового геофильтра и больше N строк
+без resume. Для сохранения прежнего снимка CSV сначала сделайте его копию.
+
+## Результат и остановки
+
+CSV: 24 колонки, UTF-8 BOM, разделитель `;`. Рядом sample.summary.json текущего
+запуска. SQLite хранит организации, проверки, решения, runs и доказательства
+медицинской пагинации. CSV заменяется через временный .tmp. Статистика различает
+cards_reviewed, accepted текущего запуска и exported_total всей отрасли;
+resume_initial/goal_total описывают продолжение.
+
+Пригодность: название, корректный сайт, телефон ИЛИ email; available либо
+captcha/blocked с protection_page_confirmed=true. mismatch бренда исключён,
+unknown/probable бренда допустимы. Для защиты скрининг unknown. Строительство
+дополнительно требует тот же конечный домен и строительную тематику доступной
+страницы. Баллы рейтинга не ограничивают приём.
+
+Читайте target_achieved и stop_reason, а не только exit code:
+
+- target_reached / target_already_reached — цель достигнута;
+- safety_card_limit / safety_page_limit — защитный предел, не конец источника;
+- pagination_stalled — повтор страницы/ссылок либо пустая страница с переходом;
+- source_exhausted — окончание наблюдаемой пагинации;
+- access_restricted — подтверждённая защита каталога;
+- source_error / unsafe_pagination_link — ошибка источника/перехода;
+- interrupted — прерывание с сохранением фактической части в finally.
+
+Ctrl+C обычно позволяет сохранить итог. Принудительное убийство процесса или
+питание не гарантирует финальный CSV; основной журнал — SQLite.
+
+## Ошибки и восстановление
+
+FileNotFoundError medadvisor.csv устранён для штатных маршрутов. Явное чтение
+несуществующего CSV через db.csv_records остаётся ошибкой по контракту.
+ERR_CERT_DATE_INVALID не обходить отключением TLS: проверьте часы, сеть,
+сертификат источника, сохраните stop_detail. Защита каталога и отказ отдельного
+сайта — разные причины. Защитная среда может запрещать драйвер/сеть; это само
+по себе не доказывает ошибку программы. Реальные тесты выполнены локально.
+
+Искажённый вывод PowerShell: современный UTF-8 терминал; при необходимости перед
+запуском `$env:PYTHONIOENCODING='utf-8'` и
+`[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)`.
+CLI настраивает stdout/stderr UTF-8; старый PowerShell может иначе кодировать
+перенаправление. CSV уже с BOM. Не перекодируйте исходные базы.
+
+Оба контактных поля не обязательны, доставляемость email/телефона не проверяется.
+Регулярные выражения не гарантируют правильность каждого извлечённого контакта.
+
+Данные контрольной точки находятся отдельно в приватном Parser-v3-Data.
+Восстановление четырёх архивов в этой ревизии не проверялось. Остановите писателей,
+распакуйте в новую папку, сохраните архивы/контрольные суммы, проверьте состав и
+PRAGMA integrity_check на восстановленной копии. Сопоставьте отрасль и число
+строк с CSV до замены рабочих данных. Копия одного живого .db без WAL может быть
+несогласованной; используйте SQLite backup либо снимок после остановки.

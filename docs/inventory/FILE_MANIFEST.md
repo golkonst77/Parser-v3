@@ -1,5 +1,9 @@
 # Манифест и дерево
 
+> Историческая инвентаризация 26.10.2026 исходного рабочего каталога.
+> Не описывает состав текущего Git и не является инструкцией запуска.
+> Актуальные модули: [ARCHITECTURE](ARCHITECTURE.md); статус: [STATUS](STATUS.md).
+
 Дата: 26.10.2026. Исходно 1209 файлов, 241524076 байт (около 230.3 MiB). Данные не копировались в документы. Результаты, копии и кэши скрыты в дереве; виртуальные окружения не обнаружены.
 
 ## Дерево исходников
@@ -88,11 +92,11 @@ Parser V2_0/
 | [lead_scoring.py](../../lead_scoring.py) | Приоритет, очереди, домены, Excel-экранирование. |
 | [lead_cli.py](../../lead_cli.py) | Меню рейтингов, экспорт/пересчёт и статус обработки. |
 | [lead_scoring_config.json](../../lead_scoring_config.json) | Несекретные веса шести критериев и coverage; нужен коду. |
-| [medadvisor.csv](../../medadvisor.csv) | Реальный источник карточек CSV-пути; не публиковать. |
-| [parser_v2.db](../../parser_v2.db) | Основная БД; исключить вместе с WAL/SHM. |
-| [parser_v2.db-wal](../../parser_v2.db-wal) | Журнал SQLite; учитывать при согласованном backup. |
-| [parser_v2.db-shm](../../parser_v2.db-shm) | Shared memory SQLite; не публиковать. |
-| [engine.py.bak](../../engine.py.bak) | Историческая копия, не активный модуль. |
+| `medadvisor.csv` (локальный файл, не опубликован) | Реальный источник карточек CSV-пути; не публиковать. |
+| `parser_v2.db` (локальный файл, не опубликован) | Основная БД; исключить вместе с WAL/SHM. |
+| `parser_v2.db-wal` (локальный файл, не опубликован) | Журнал SQLite; учитывать при согласованном backup. |
+| `parser_v2.db-shm` (локальный файл, не опубликован) | Shared memory SQLite; не публиковать. |
+| `engine.py.bak` (локальный файл, не опубликован) | Историческая копия, не активный модуль. |
 
 ## Тесты и вспомогательные скрипты
 
@@ -102,19 +106,19 @@ Stage/control/verify/replay/repair/backup-скрипты в дереве — и�
 
 ## Существующая документация и пробелы
 
-- [STAGE1_REPORT.md](../../STAGE1_REPORT.md): миграция; часть описания отбора предшествует Collection.
-- [STAGE2_REPORT.md](../../STAGE2_REPORT.md): проверка доступности.
-- [STAGE3_REPORT.md](../../STAGE3_REPORT.md): быстрый скрининг.
-- [STAGE3_1_REPORT.md](../../STAGE3_1_REPORT.md): идентификация и уточнения скрининга.
-- [STAGE4_REPORT.md](../../STAGE4_REPORT.md): рейтинги.
-- [STAGE5_REPORT.md](../../STAGE5_REPORT.md): география.
-- [ORGPAGE_RECOVERY_REPORT.md](../../ORGPAGE_RECOVERY_REPORT.md): ограничения доступа.
-- [ORGPAGE_PAGINATION_REPORT.md](../../ORGPAGE_PAGINATION_REPORT.md): AJAX-пагинация.
-- [MEDADVISOR_START_PAGE_REPORT.md](../../MEDADVISOR_START_PAGE_REPORT.md): актуальная модель страницы CLI.
-- [CONSTRUCTION_REPORT.md](../../CONSTRUCTION_REPORT.md): направления строительства.
-- [UNIQUE_URL_ACCUMULATION_REPORT.md](../../UNIQUE_URL_ACCUMULATION_REPORT.md): новые сайты и накопительный CSV.
-- [TARGET_COUNT_REPORT.md](../../TARGET_COUNT_REPORT.md): история; утверждения о CSV до N и CSV-пути MedAdvisor устарели.
-- [REPEAT_RUN_AUDIT.md](../../REPEAT_RUN_AUDIT.md): история; описание повторного upsert устарело.
+- `STAGE1_REPORT.md` (локальный файл, не опубликован): миграция; часть описания отбора предшествует Collection.
+- `STAGE2_REPORT.md` (локальный файл, не опубликован): проверка доступности.
+- `STAGE3_REPORT.md` (локальный файл, не опубликован): быстрый скрининг.
+- `STAGE3_1_REPORT.md` (локальный файл, не опубликован): идентификация и уточнения скрининга.
+- `STAGE4_REPORT.md` (локальный файл, не опубликован): рейтинги.
+- `STAGE5_REPORT.md` (локальный файл, не опубликован): география.
+- `ORGPAGE_RECOVERY_REPORT.md` (локальный файл, не опубликован): ограничения доступа.
+- `ORGPAGE_PAGINATION_REPORT.md` (локальный файл, не опубликован): AJAX-пагинация.
+- `MEDADVISOR_START_PAGE_REPORT.md` (локальный файл, не опубликован): актуальная модель страницы CLI.
+- `CONSTRUCTION_REPORT.md` (локальный файл, не опубликован): направления строительства.
+- `UNIQUE_URL_ACCUMULATION_REPORT.md` (локальный файл, не опубликован): новые сайты и накопительный CSV.
+- `TARGET_COUNT_REPORT.md` (локальный файл, не опубликован): история; утверждения о CSV до N и CSV-пути MedAdvisor устарели.
+- `REPEAT_RUN_AUDIT.md` (локальный файл, не опубликован): история; описание повторного upsert устарело.
 
 Нет README, dependency/lock-манифеста и единого переносимого тестового окружения. Исторические отчёты требуют проверки на реальные данные перед публикацией; новые документы ссылаются на них вместо дублирования подробностей.
 
