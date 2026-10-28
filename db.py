@@ -67,7 +67,9 @@ def get_connection():
     return conn
 
 def init_db(csv_path=None, *, refresh_existing=True):
-    records = csv_records(csv_path)
+    # The default medical CSV is optional migration data, not a schema dependency.
+    # Explicit inputs (and csv_records itself) remain strict about missing files.
+    records = csv_records(csv_path) if csv_path is not None or (refresh_existing and (ROOT / 'medadvisor.csv').is_file()) else {}
     with get_connection() as c:
         c.execute('CREATE TABLE IF NOT EXISTS companies (url TEXT PRIMARY KEY, industry TEXT NOT NULL, name TEXT, phone TEXT, email TEXT, site TEXT, site_status TEXT, source_url TEXT, created_at TEXT, updated_at TEXT)')
         c.execute('CREATE TABLE IF NOT EXISTS migration_originals (url TEXT PRIMARY KEY, original_json TEXT NOT NULL)')
@@ -382,4 +384,3 @@ def export_all_to_csv(filename='export_ALL.csv'):
             })
     
     return len(rows), filename
-
