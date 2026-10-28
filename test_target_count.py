@@ -12,7 +12,7 @@ from target_collection import Collection,SourceStopped,card_stream,export_result
 
 class TargetTests(unittest.TestCase):
     def setUp(self):
-        self.temp=tempfile.TemporaryDirectory(dir=Path(__file__).parent/'target_count_results')
+        self.temp=tempfile.TemporaryDirectory()
         self.old=db.DB_FILE;db.DB_FILE=str(Path(self.temp.name)/'test.db')
         self.seed=Path(self.temp.name)/'cards.csv'
         self.seed.write_text('link href,clinic-card__title,clinic-card__city\n',encoding='utf-8')

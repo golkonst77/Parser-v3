@@ -70,6 +70,14 @@ def main(argv=None):
     from engine import run_parser
     from geography import selection
     if args.database:
+        if args.database.is_file():
+            import sqlite3
+            from contextlib import closing
+            with closing(sqlite3.connect(args.database.resolve().as_uri()+'?mode=ro',uri=True)) as conn:
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='companies'").fetchone():
+                    saved={row[0] for row in conn.execute('SELECT DISTINCT industry FROM companies')}
+                    if saved-{config['name']}:
+                        parser.error('Указанная --database содержит другую отрасль; используйте отдельную БД')
         args.database.parent.mkdir(parents=True,exist_ok=True)
         db.DB_FILE=str(args.database.resolve())
     if args.output:config['output']=str(args.output)

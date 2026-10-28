@@ -24,12 +24,16 @@ def source_config(config):
     if medical:
         config['link_re']=r'https?://(?:www\.)?medadvisor\.ru/[a-z0-9-]+/clinic/\d+'
         config.setdefault('input_csv',str(db.ROOT/'medadvisor.csv'))
+        config.setdefault('start_page',1)
     else:
+        config.pop('input_csv',None)
         config['link_re']=r'https?://(?:www\.)?orgpage\.ru/[a-z0-9-]+/[a-z0-9-]+-\d+\.html'
         if 'orgpage.ru' not in (urlsplit(config.get('search_url','')).hostname or ''):
             config['search_url']='https://www.orgpage.ru/search.html?'+urlencode({'q':config['name'],'loc':'Россия','forReplies':'false'})
-        parts=urlsplit(config['search_url']);query=dict(parse_qsl(parts.query));query['loc']='Россия'
-        config['search_url']=urlunsplit(parts._replace(query=urlencode(query)))
+        parts=urlsplit(config['search_url'])
+        if not parts.path.startswith('/rossiya/'):
+            query=dict(parse_qsl(parts.query));query['loc']='Россия'
+            config['search_url']=urlunsplit(parts._replace(query=urlencode(query)))
     return config
 
 
@@ -130,6 +134,8 @@ def _orgpage_urls(browser,config,collection,source_context=None):
     from industries import MAX_PAGES,NEXT_SELECTORS,REQUEST_DELAY
     geo=config.get('geography')
     locations=geo.get('cities',[])+geo.get('regions',[]) if geo is not None else ['Россия']
+    category=urlsplit(config['search_url']).path.startswith('/rossiya/')
+    if category:locations=['Россия']  # Card geography still applies; category itself is nationwide.
     seen=set();signatures=set()
     context=source_context or orgpage_context(browser)
     page=context.new_page();last_status=[None]
@@ -147,7 +153,8 @@ def _orgpage_urls(browser,config,collection,source_context=None):
     try:
         for location in locations:
             page_number=1;stage='catalog_navigation'
-            parts=urlsplit(config['search_url']);query=dict(parse_qsl(parts.query));query['loc']=location
+            parts=urlsplit(config['search_url']);query=dict(parse_qsl(parts.query))
+            if not category:query['loc']=location
             url=urlunsplit(parts._replace(query=urlencode(query)))
             if collection.stats['source_pages']>=config.get('max_pages',MAX_PAGES):raise SourceStopped('safety_page_limit')
             response=page.goto(url,timeout=30000,wait_until='domcontentloaded')
@@ -158,6 +165,8 @@ def _orgpage_urls(browser,config,collection,source_context=None):
                 collection.stats['source_pages']+=1
                 stage='catalog_read'
                 diagnostic=orgpage_access(page,last_status[0],'catalog')
+                if config.get('catalog_title') and config['catalog_title'].casefold() not in page.title().casefold():
+                    raise SourceStopped('source_error','Каталог не соответствует отраслевой рубрике: '+page.title())
                 diagnostic.update(page_number=page_number,ajax_http_status=ajax['http_status'],ajax_url=ajax['url'])
                 if config.get('_source_query') is not None:
                     diagnostic.update(search_query=config['_source_query'],direction=config['_source_direction'])
