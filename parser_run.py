@@ -35,6 +35,7 @@ def main(argv=None):
     parser.add_argument('--output',type=Path)
     parser.add_argument('--max-cards',type=int)
     parser.add_argument('--max-pages',type=int,default=200,help='Общий предел страниц каталога за запуск: 1–1000 (по умолчанию 200)')
+    parser.add_argument('--sequential',action='store_true',help='MedAdvisor: постоянная БД, target новых организаций и CSV за запуск')
     parser.add_argument('--resume',action='store_true',help='Продолжить отдельную БД; target означает итоговое число пригодных записей отрасли')
     parser.add_argument('--city',action='append',default=[])
     parser.add_argument('--region',action='append',default=[])
@@ -65,6 +66,15 @@ def main(argv=None):
     if config['source']=='medadvisor':
         config['start_page']=(positive_input('С какой страницы MedAdvisor начать? [1]: ',1) if interactive else args.start_page or 1)
     elif args.start_page is not None:parser.error('--start-page применяется только к MedAdvisor')
+    if args.sequential:
+        if config['source']!='medadvisor' or args.resume or args.start_page is not None or args.city or args.region:
+            parser.error('--sequential поддерживает только MedAdvisor без resume/start-page/city/region')
+        from datetime import datetime
+        args.database=args.database or Path('local_run/medadvisor_sequential/data.db')
+        args.output=args.output or args.database.parent/('run_'+datetime.now().strftime('%Y%m%d_%H%M%S_%f')+'.csv')
+        if args.output.exists():parser.error('--sequential требует новый путь --output для каждого запуска')
+        config['sequential']=True
+        config['catalog_pages_path']=str(args.database.parent/'catalog_pages.json')
     dependencies()
     import db
     from engine import run_parser

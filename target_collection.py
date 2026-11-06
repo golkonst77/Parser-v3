@@ -414,7 +414,7 @@ def accumulated_records(collection):
 def export_results(collection,filename):
     filename=Path(filename);filename.parent.mkdir(parents=True,exist_ok=True)
     scores=saved_export_scores()
-    records=accumulated_records(collection)
+    records=collection.accepted if getattr(collection,'sequential',False) else accumulated_records(collection)
     collection.stats['exported_total']=len(records)
     temporary=filename.with_suffix(filename.suffix+'.tmp')
     with temporary.open('w',encoding='utf-8-sig',newline='') as f:
@@ -441,9 +441,10 @@ def resume_state(config):
         raise ValueError('Resume поддерживает отдельный общероссийский каталог одной отрасли')
     with closing(sqlite3.connect(Path(db.DB_FILE).resolve().as_uri()+'?mode=ro',uri=True)) as conn:
         industries={row[0] for row in conn.execute('SELECT DISTINCT industry FROM companies')}
-        if industries!={config['name']}:
+        if industries!={config['name']} and not (config.get('sequential') and not industries):
             raise ValueError('Resume требует БД только выбранной отрасли; смешивать отрасли нельзя')
-        reviewed={db.canonical_url(row[0]) for row in conn.execute('SELECT company_url FROM collection_decisions')}
+        has_decisions=conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='collection_decisions'").fetchone()
+        reviewed={db.canonical_url(row[0]) for row in conn.execute('SELECT company_url FROM collection_decisions')} if has_decisions else set()
         histories=[json.loads(row[0]) for row in conn.execute('SELECT stats_json FROM runs WHERE stats_json IS NOT NULL ORDER BY id')]
     rules=Collection(1,1,require_same_site_domain=config.get('require_same_site_domain',False),require_site_topic=bool(config.get('site_topic_terms')))
     rules.industry=config['name']
@@ -451,8 +452,12 @@ def resume_state(config):
     start=None
     if config['source']=='medadvisor':
         proofs={proof['requested_page']:proof for history in histories for proof in history.get('catalog_pages',[]) if proof.get('verified')}
-        if not proofs:raise ValueError('Нет проверенного курсора MedAdvisor для безопасного resume')
-        start=min(proofs)
+        if config.get('catalog_pages_path') and Path(config['catalog_pages_path']).is_file():
+            for proof in json.loads(Path(config['catalog_pages_path']).read_text(encoding='utf-8')):
+                if proof.get('verified'):proofs[proof['requested_page']]=proof
+        if not proofs and (not config.get('sequential') or reviewed):
+            raise ValueError('Нет проверенного курсора MedAdvisor для безопасного resume')
+        start=min(proofs) if proofs else 1
         while start in proofs:
             proof=proofs[start]
             # Buffered pages may never have reached process_cards: replay the first incomplete page.
@@ -467,15 +472,26 @@ def run_target(config,target):
     config.setdefault('max_pages',200)
     if type(config['max_pages']) is not int or not 1<=config['max_pages']<=1000:
         raise ValueError('max_pages должен быть от 1 до 1000')
-    resume=resume_state(config) if config.get('resume') else None
+    sequential=config.get('sequential',False)
+    if sequential:
+        if config['source']!='medadvisor':raise ValueError('Sequential поддерживает только MedAdvisor')
+        db.init_db(refresh_existing=False)
+    resume=resume_state(config) if config.get('resume') or sequential else None
     goal=target
     if resume:
-        target=max(0,goal-resume['initial'])
+        target=goal if sequential else max(0,goal-resume['initial'])
         config['_reviewed_urls']=resume['reviewed']
         if resume['start_page'] is not None:config['start_page']=resume['start_page']
-        print(f"Resume: сохранено пригодных {resume['initial']}; итоговая цель {goal}; добрать {target}; ранее просмотрено {len(resume['reviewed'])}")
+        goal_label="цель запуска" if sequential else "итоговая цель"
+        print(f"Resume: сохранено пригодных {resume['initial']}; {goal_label} {goal}; добрать {target}; ранее просмотрено {len(resume['reviewed'])}")
         if resume['start_page'] is not None:print('Продолжение MedAdvisor со страницы:',resume['start_page'])
     collection=Collection(max(1,target),config.get('max_cards',max(200,10*target)),require_same_site_domain=config.get('require_same_site_domain',False),require_site_topic=bool(config.get('site_topic_terms')))
+    collection.sequential=sequential
+    if sequential:
+        collection.industry=config['name']
+        for row in accumulated_records(collection):
+            collection.identities.add(db.canonical_url(row['URL агрегатора']))
+            collection.domains.update(host for value in (row['Сайт'],row['Проверка сайта'].get('final_url')) if (host:=site_domain(value)))
     if resume:
         collection.resume_stats=dict(goal_total=goal,resume_initial=resume['initial'],resume_reviewed=len(resume['reviewed']))
         if target==0:

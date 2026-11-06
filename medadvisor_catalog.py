@@ -26,7 +26,7 @@ def page_url(base,number):
 def _save_proof(config,collection,proof):
     collection.stats.setdefault('catalog_pages',[]).append(proof)
     if config.get('output'):
-        path=Path(config['output']).with_suffix('.catalog_pages.json')
+        path=Path(config['catalog_pages_path']) if config.get('catalog_pages_path') else Path(config['output']).with_suffix('.catalog_pages.json')
         path.parent.mkdir(parents=True,exist_ok=True)
         temp=path.with_suffix(path.suffix+'.tmp')
         temp.write_text(json.dumps(collection.stats['catalog_pages'],ensure_ascii=False,indent=2),encoding='utf-8')
